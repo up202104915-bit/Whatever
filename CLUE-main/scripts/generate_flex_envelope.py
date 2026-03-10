@@ -19,7 +19,7 @@ from agent.clue_hvac_dhw_flex import (
     ComfortConfig,
     compute_comfort_priority_flex_envelope,
     envelope_to_gams_inc,
-    inspect_epjson_hvac_dhw,
+    inspect_building_hvac_dhw,
     prepare_hvac_dhw_timeseries,
 )
 
@@ -31,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--building",
         required=True,
-        help="Path to epJSON model (IDF equivalent).",
+        help="Path to building model (.idf or .epJSON).",
     )
     parser.add_argument(
         "--monitor",
@@ -79,9 +79,10 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    inspection = inspect_epjson_hvac_dhw(args.building)
+    inspection = inspect_building_hvac_dhw(args.building)
     print("=== Building inspection summary ===")
     print(f"Model: {inspection['model_path']}")
+    print(f"Model format: {inspection['model_format']}")
     print(f"DHW detected: {inspection['has_dhw']}")
     print(f"Water heaters: {inspection['water_heater_names']}")
     print(f"HVAC heating schedules: {inspection['hvac_heating_schedules'][:3]}")

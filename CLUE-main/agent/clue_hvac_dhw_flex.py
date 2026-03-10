@@ -9,12 +9,18 @@ This module is designed to sit next to the original CLUE code and provide:
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+
+try:
+    from eppy.modeleditor import IDF
+except Exception:  # pragma: no cover - only needed for IDF inspection paths.
+    IDF = None
 
 
 @dataclass(frozen=True)
@@ -40,7 +46,7 @@ class ComfortConfig:
     occupied_threshold: float = 0.01
 
 
-def inspect_epjson_hvac_dhw(model_path: str | Path) -> Dict[str, object]:
+def _inspect_epjson_hvac_dhw(model_path: str | Path) -> Dict[str, object]:
     """Inspect an EnergyPlus epJSON model and extract HVAC + DHW hooks.
 
     Args:
@@ -50,11 +56,6 @@ def inspect_epjson_hvac_dhw(model_path: str | Path) -> Dict[str, object]:
         Dictionary with relevant schedules and object names for control.
     """
     path = Path(model_path)
-    if path.suffix.lower() not in {".epjson", ".json"}:
-        raise ValueError(
-            f"Expected an epJSON file, got: {path}. "
-            "Convert IDF to epJSON first for this utility."
-        )
 
     with path.open("r", encoding="utf-8") as f:
         building = json.load(f)
@@ -88,6 +89,7 @@ def inspect_epjson_hvac_dhw(model_path: str | Path) -> Dict[str, object]:
 
     return {
         "model_path": str(path),
+        "model_format": "epjson",
         "has_hvac_dual_setpoint": len(dual_setpoints) > 0,
         "has_dhw": len(water_heaters) > 0,
         "hvac_heating_schedules": heat_sp_schedules,
@@ -95,6 +97,128 @@ def inspect_epjson_hvac_dhw(model_path: str | Path) -> Dict[str, object]:
         "dhw_setpoint_schedules": dhw_setpoint_schedules,
         "water_heater_names": water_heater_names,
     }
+
+
+def _idf_field(obj: object, names: Iterable[str]) -> Optional[str]:
+    """Read a field value from eppy object by several possible field names."""
+    for name in names:
+        # direct key access in eppy objects
+        try:
+            value = obj[name]
+            if value not in ("", None):
+                return str(value)
+        except Exception:
+            pass
+        # attribute style in eppy objects
+        attr_name = name.replace(" ", "_")
+        if hasattr(obj, attr_name):
+            value = getattr(obj, attr_name)
+            if value not in ("", None):
+                return str(value)
+    return None
+
+
+def _inspect_idf_hvac_dhw(model_path: str | Path) -> Dict[str, object]:
+    """Inspect an EnergyPlus IDF model and extract HVAC + DHW hooks."""
+    if IDF is None:
+        raise ImportError(
+            "eppy is required to inspect IDF files. Install project requirements first."
+        )
+
+    eplus_path = os.environ.get("EPLUS_PATH")
+    if not eplus_path:
+        raise EnvironmentError("EPLUS_PATH is required to inspect IDF models.")
+
+    idd_path = os.path.join(eplus_path, "Energy+.idd")
+    # eppy allows setting IDD once per process. Re-setting to same path is safe.
+    IDF.setiddname(idd_path)
+    idf = IDF(str(model_path))
+
+    dual_objects = idf.idfobjects["THERMOSTATSETPOINT:DUALSETPOINT"]
+    heat_sp_schedules = sorted(
+        {
+            value
+            for value in (
+                _idf_field(
+                    obj,
+                    [
+                        "Heating_Setpoint_Temperature_Schedule_Name",
+                        "heating_setpoint_temperature_schedule_name",
+                    ],
+                )
+                for obj in dual_objects
+            )
+            if value
+        }
+    )
+    cool_sp_schedules = sorted(
+        {
+            value
+            for value in (
+                _idf_field(
+                    obj,
+                    [
+                        "Cooling_Setpoint_Temperature_Schedule_Name",
+                        "cooling_setpoint_temperature_schedule_name",
+                    ],
+                )
+                for obj in dual_objects
+            )
+            if value
+        }
+    )
+
+    water_heaters = idf.idfobjects["WATERHEATER:MIXED"]
+    dhw_setpoint_schedules = sorted(
+        {
+            value
+            for value in (
+                _idf_field(
+                    obj,
+                    [
+                        "Setpoint_Temperature_Schedule_Name",
+                        "setpoint_temperature_schedule_name",
+                    ],
+                )
+                for obj in water_heaters
+            )
+            if value
+        }
+    )
+    water_heater_names = sorted(
+        [value for value in (_idf_field(obj, ["Name", "name"]) for obj in water_heaters) if value]
+    )
+
+    return {
+        "model_path": str(model_path),
+        "model_format": "idf",
+        "has_hvac_dual_setpoint": len(dual_objects) > 0,
+        "has_dhw": len(water_heaters) > 0,
+        "hvac_heating_schedules": heat_sp_schedules,
+        "hvac_cooling_schedules": cool_sp_schedules,
+        "dhw_setpoint_schedules": dhw_setpoint_schedules,
+        "water_heater_names": water_heater_names,
+    }
+
+
+def inspect_building_hvac_dhw(model_path: str | Path) -> Dict[str, object]:
+    """Inspect IDF or epJSON building model for HVAC+DHW control points."""
+    path = Path(model_path)
+    suffix = path.suffix.lower()
+
+    if suffix in {".epjson", ".json"}:
+        return _inspect_epjson_hvac_dhw(path)
+    if suffix == ".idf":
+        return _inspect_idf_hvac_dhw(path)
+    raise ValueError(
+        f"Unsupported building file format: {suffix}. "
+        "Supported formats are .idf and .epJSON/.json."
+    )
+
+
+def inspect_epjson_hvac_dhw(model_path: str | Path) -> Dict[str, object]:
+    """Backward compatible alias for previous API name."""
+    return inspect_building_hvac_dhw(model_path)
 
 
 def build_action_definition_from_inspection(

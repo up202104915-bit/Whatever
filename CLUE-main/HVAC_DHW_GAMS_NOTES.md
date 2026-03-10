@@ -2,11 +2,15 @@
 
 ## 1) Building inspection result needed for control adaptation
 
-Use `inspect_epjson_hvac_dhw(...)` to extract:
+Use `inspect_building_hvac_dhw(...)` to extract:
 
 - HVAC heating/cooling setpoint schedules (`ThermostatSetpoint:DualSetpoint`),
 - DHW setpoint schedules (`WaterHeater:Mixed`),
 - Water heater object names.
+
+Supported model formats:
+- `.idf` (parsed directly),
+- `.epJSON`.
 
 These are then mapped into Sinergym `action_definition` so CLUE can control
 both systems:

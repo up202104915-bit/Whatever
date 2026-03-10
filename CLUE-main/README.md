@@ -50,7 +50,7 @@ $ pip install -r requirements.txt
 This repository now includes a CLUE extension module for **comfort-prioritized HVAC + DHW flexibility**:
 
 - `agent/clue_hvac_dhw_flex.py`
-  - inspects an EnergyPlus `epJSON` model (IDF-equivalent) for HVAC and DHW setpoint schedules,
+  - inspects an EnergyPlus model (`.idf` or `epJSON`) for HVAC and DHW setpoint schedules,
   - prepares monitor time series from simulation output,
   - computes a flexibility power envelope `p_min <= p_base <= p_max`,
   - exports a GAMS `.inc` file.
@@ -67,8 +67,28 @@ python3 scripts/generate_flex_envelope.py \
   --out-gams results/flex_envelope.inc
 ```
 
-> Note: if your source model is `.idf`, convert to `epJSON` first (or provide the equivalent epJSON model).  
-> The provided implementation prioritizes comfort constraints first, then quantifies up/down flexibility.
+If your source model is `.idf`, the simulator now supports it directly and auto-converts it to `epJSON` internally at runtime for training.
+The provided implementation prioritizes comfort constraints first, then quantifies up/down flexibility.
+
+#### Training with your own `.idf`
+
+You can pass a custom IDF path directly when creating an environment:
+
+```python
+import gymnasium as gym
+import sinergym
+
+env = gym.make(
+    "Eplus-demo-v1",
+    building_file="/absolute/path/to/your_building.idf",
+    weather_file="/absolute/path/to/your_weather.epw",
+    # Optional but recommended for variable validation:
+    # rdd_file="/absolute/path/to/your_building.rdd",
+)
+```
+
+For custom buildings, ensure your `observation_variables`, `action_variables`,
+and `action_definition` match components available in your model.
 
 ### License
 
