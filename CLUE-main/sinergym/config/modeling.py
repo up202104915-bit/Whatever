@@ -2,6 +2,7 @@
 import json
 import os
 import random
+import warnings
 import xml.etree.cElementTree as ElementTree
 from abc import ABC, abstractmethod
 from copy import deepcopy
@@ -206,8 +207,8 @@ class ModelJSON(object):
             else:
                 self._rdd_path = None
 
-        # DDY path is deducible using weather_path (only change .epw by .ddy)
-        self._ddy_path = self._weather_path.split('.epw')[0] + '.ddy'
+        # DDY path is deducible using weather_path
+        self._ddy_path = self._infer_ddy_path(self._weather_path)
 
         # -------------------------------- File Models ------------------------------- #
 
@@ -219,9 +220,16 @@ class ModelJSON(object):
         with open(self._json_path) as json_f:
             self.building = json.load(json_f)
 
-        # DDY model (eppy object)
+        # DDY model (eppy object, optional if DDY is not available)
         IDF.setiddname(self._idd)
-        self.ddy_model = IDF(self._ddy_path)
+        self.ddy_model = None
+        if os.path.isfile(self._ddy_path):
+            self.ddy_model = IDF(self._ddy_path)
+        else:
+            warnings.warn(
+                f'DDY file not found for weather {self._weather_path}. '
+                'Skipping Site:Location and DesignDay adaptation from DDY.'
+            )
 
         # Weather data (opyplus object)
         self.weather_data = WeatherData.from_epw(self._weather_path)
@@ -269,8 +277,15 @@ class ModelJSON(object):
         """When this method is called, weather file is changed randomly and building model is adapted to new one.
         """
         self._weather_path = random.choice(self.weather_files)
-        self._ddy_path = self._weather_path.split('.epw')[0] + '.ddy'
-        self.ddy_model = IDF(self._ddy_path)
+        self._ddy_path = self._infer_ddy_path(self._weather_path)
+        if os.path.isfile(self._ddy_path):
+            self.ddy_model = IDF(self._ddy_path)
+        else:
+            self.ddy_model = None
+            warnings.warn(
+                f'DDY file not found for weather {self._weather_path}. '
+                'Skipping Site:Location and DesignDay adaptation from DDY.'
+            )
         self.weather_data = WeatherData.from_epw(self._weather_path)
 
     def adapt_building_to_epw(
@@ -284,6 +299,10 @@ class ModelJSON(object):
             winterday (str): Design day for winter day specifically (DDY has several of them).
         """
 
+        # If DDY is missing, keep model defaults.
+        if self.ddy_model is None:
+            return
+
         # Getting the new location and designdays based on ddy file (Records
         # must be converted to dictionary)
 
@@ -293,14 +312,22 @@ class ModelJSON(object):
 
         # DESIGNDAYS
         ddy_designdays = self.ddy_model.idfobjects['SizingPeriod:DesignDay']
-        summer_designdays = list(
+        summer_candidates = list(
             filter(
                 lambda designday: summerday in designday.Name,
-                ddy_designdays))[0]
-        winter_designdays = list(
+                ddy_designdays))
+        winter_candidates = list(
             filter(
                 lambda designday: winterday in designday.Name,
-                ddy_designdays))[0]
+                ddy_designdays))
+        if len(summer_candidates) == 0 or len(winter_candidates) == 0:
+            warnings.warn(
+                'Expected design days were not found in DDY file. '
+                'Keeping existing design days from the building model.'
+            )
+            return
+        summer_designdays = summer_candidates[0]
+        winter_designdays = winter_candidates[0]
         new_designdays = {}
         new_designdays.update(eppy_element_to_dict(winter_designdays))
         new_designdays.update(eppy_element_to_dict(summer_designdays))
@@ -861,6 +888,11 @@ class ModelJSON(object):
             # Check observation variables about HVAC
             elif self.rdd_variables[obs_name] == 'HVAC':
                 pass
+
+    def _infer_ddy_path(self, weather_path: str) -> str:
+        """Infer DDY path from an EPW path."""
+        stem, _ = os.path.splitext(weather_path)
+        return stem + '.ddy'
 
     def _resolve_input_path(self, path_or_name: str, pkg_subdir: str) -> str:
         """Resolve a model/weather/rdd input path.
