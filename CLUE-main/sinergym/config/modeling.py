@@ -14,7 +14,13 @@ import pandas
 from eppy import modeleditor
 from eppy.modeleditor import IDF
 from opyplus import Epm, Idd, WeatherData
-from opyplus.epm.record import Record
+
+# opyplus API changed in 2.x (record module path removed).
+# Record is only used for type annotations in this codebase, so fall back to Any.
+try:  # pragma: no cover
+    from opyplus.epm.record import Record
+except Exception:  # pragma: no cover
+    Record = Any
 
 from sinergym.utils.common import eppy_element_to_dict, get_delta_seconds
 from sinergym.utils.constants import CWD, PKG_DATA_PATH, WEEKDAY_ENCODING, YEAR

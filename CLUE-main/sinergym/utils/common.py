@@ -13,7 +13,13 @@ import pandas as pd
 import xlsxwriter
 from eppy.modeleditor import IDF
 from opyplus import Epm, WeatherData
-from opyplus.epm.record import Record
+
+# opyplus API changed in 2.x (record module path removed).
+# Record is only used for type annotations in this codebase, so fall back to Any.
+try:  # pragma: no cover
+    from opyplus.epm.record import Record
+except Exception:  # pragma: no cover
+    Record = Any
 
 from sinergym.utils.constants import YEAR
 
